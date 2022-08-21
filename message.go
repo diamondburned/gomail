@@ -2,6 +2,7 @@ package gomail
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -19,6 +20,7 @@ type Message struct {
 	hEncoder    mimeEncoder
 	buf         bytes.Buffer
 	boundary    string
+	ctx         context.Context
 }
 
 type header map[string][]string
@@ -36,6 +38,7 @@ func NewMessage(settings ...MessageSetting) *Message {
 		header:   make(header),
 		charset:  "UTF-8",
 		encoding: QuotedPrintable,
+		ctx:      context.Background(),
 	}
 
 	m.applySettings(settings)
@@ -60,6 +63,19 @@ func (m *Message) Reset() {
 	m.embedded = nil
 }
 
+// Context returns the message's internal context. The context is either set
+// using SetContext or it's defaulted to Background.
+func (m *Message) Context() context.Context {
+	return m.ctx
+}
+
+// WithContext copies the message and makes it use a different context.
+func (m *Message) WithContext(ctx context.Context) *Message {
+	m2 := *m
+	m2.ctx = ctx
+	return &m2
+}
+
 func (m *Message) applySettings(settings []MessageSetting) {
 	for _, s := range settings {
 		s(m)
@@ -81,6 +97,15 @@ func SetCharset(charset string) MessageSetting {
 func SetEncoding(enc Encoding) MessageSetting {
 	return func(m *Message) {
 		m.encoding = enc
+	}
+}
+
+// SetContext is a message setting to set the context of the email. The context
+// determines cancellation and timeout for sending the message over the SMTP
+// connection.
+func SetContext(ctx context.Context) MessageSetting {
+	return func(m *Message) {
+		m.ctx = ctx
 	}
 }
 
