@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/smtp"
 	"strings"
 	"time"
+
+	"github.com/emersion/go-sasl"
+	"github.com/emersion/go-smtp"
 )
 
 // A Dialer is a dialer to an SMTP server.
@@ -24,7 +26,7 @@ type Dialer struct {
 	Password string
 	// Auth represents the authentication mechanism used to authenticate to the
 	// SMTP server.
-	Auth smtp.Auth
+	Auth sasl.Client
 	// Port represents the port of the SMTP server.
 	Port int
 	// NetDialer is the net.Dialer instance to use. For legacy purposes, if
@@ -157,16 +159,10 @@ func (d *Dialer) DialCtx(ctx context.Context) (SendCloser, error) {
 	if d.Auth == nil && d.Username != "" {
 		if ok, auths := c.Extension("AUTH"); ok {
 			switch {
-			case strings.Contains(auths, "CRAM-MD5"):
-				d.Auth = smtp.CRAMMD5Auth(d.Username, d.Password)
 			case strings.Contains(auths, "LOGIN") && !strings.Contains(auths, "PLAIN"):
-				d.Auth = &loginAuth{
-					username: d.Username,
-					password: d.Password,
-					host:     d.Host,
-				}
+				d.Auth = sasl.NewLoginClient(d.Username, d.Password)
 			default:
-				d.Auth = smtp.PlainAuth("", d.Username, d.Password, d.Host)
+				d.Auth = sasl.NewPlainClient("", d.Username, d.Password)
 			}
 		}
 	}
@@ -299,7 +295,7 @@ func (c *smtpSender) Send(from string, to []string, msg io.WriterTo) error {
 		c.conn.SetDeadline(time.Now().Add(c.d.Timeout))
 	}
 
-	if err := c.Mail(from); err != nil {
+	if err := c.Mail(from, nil); err != nil {
 		if c.retryError(err) {
 			// This is probably due to a timeout, so reconnect and try again.
 			sc, derr := c.d.Dial()
@@ -349,8 +345,8 @@ type smtpClient interface {
 	Hello(string) error
 	Extension(string) (bool, string)
 	StartTLS(*tls.Config) error
-	Auth(smtp.Auth) error
-	Mail(string) error
+	Auth(sasl.Client) error
+	Mail(string, *smtp.MailOptions) error
 	Rcpt(string) error
 	Data() (io.WriteCloser, error)
 	Quit() error
